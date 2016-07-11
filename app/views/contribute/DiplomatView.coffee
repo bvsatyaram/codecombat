@@ -60,7 +60,9 @@ require("locale/et")
 module.exports = class DiplomatView extends ContributeClassView
   id: 'diplomat-view'
   template: template
-  contributorClassName: 'diplomat'
+
+  initialize: ->
+    @contributorClassName = 'diplomat'
 
   calculateSpokenLanguageStats: ->
     @locale ?= require 'locale/locale'
@@ -88,13 +90,13 @@ module.exports = class DiplomatView extends ContributeClassView
     'en-US': []        # English (US), English (US)
     'en-GB': []        # English (UK), English (UK)
     ru: ['EagleTA', 'ImmortalJoker', 'Mr A', 'Shpionus', 'a1ip', 'fess89', 'iulianR', 'kerradus', 'kisik21', 'nixel', 'ser-storchak']             # русский язык, Russian
-    'de-DE': ['Anon', 'Dirk', 'HiroP0', 'bahuma20', 'bkimminich', 'djsmith85', 'dkundel', 'domenukk', 'faabsen']        # Deutsch (Deutschland), German (Germany)
+    'de-DE': ['Anon', 'Dirk', 'HiroP0', 'bahuma20', 'bkimminich', 'djsmith85', 'dkundel', 'domenukk', 'faabsen', 'Zeldaretter']        # Deutsch (Deutschland), German (Germany)
     'de-AT': ['djsmith85']        # Deutsch (Österreich), German (Austria)
     'de-CH': ['greyhusky']        # Deutsch (Schweiz), German (Switzerland)
     'es-419': ['2xG', 'Federico Tomas', 'Jesús Ruppel', 'Mariano Luzza', 'Matthew Burt']       # español (América Latina), Spanish (Latin America)
     'es-ES': ['3rr3s3v3n', 'Anon', 'DanielRodriguezRivero', 'Matthew Burt', 'OviiiOne', 'Pouyio', 'Vindurrin']        # español (ES), Spanish (Spain)
     'zh-HANS': ['1c7', 'Adam23', 'BonnieBBS', 'Cheng Zheng', 'Vic020', 'ZephyrSails', 'julycoolwind', 'onion7878', 'spacepope', 'yangxuan8282', 'yfdyh000']      # 简体中文, Chinese (Simplified)
-    'zh-HANT': ['Adam23', 'gintau']      # 繁體中文, Chinese (Traditional)
+    'zh-HANT': ['Adam23', 'gintau', 'shuwn']      # 繁體中文, Chinese (Traditional)
     'zh-WUU-HANS': []  # 吴语, Wuu (Simplified)
     'zh-WUU-HANT': ['benojan']  # 吳語, Wuu (Traditional)
     fr: ['Anon', 'Armaldio', 'ChrisLightman', 'Elfisen', 'Feugy', 'MartinDelille', 'Oaugereau', 'Xeonarno', 'dc55028', 'jaybi', 'pstweb', 'veritable', 'xavismeh']             # français, French

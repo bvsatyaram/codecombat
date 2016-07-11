@@ -59,6 +59,7 @@ module.exports = class LevelLoadingView extends CocoView
     goalList = goalContainer.find('ul')
     goalCount = 0
     for goalID, goal of @level.get('goals') when (not goal.team or goal.team is (e.team or 'humans')) and not goal.hiddenGoal
+      continue if goal.optional and @level.get('type', true) is 'course'
       name = utils.i18n goal, 'name'
       goalList.append $('<li>' + name + '</li>')
       ++goalCount
@@ -78,6 +79,8 @@ module.exports = class LevelLoadingView extends CocoView
     @docs = @level.get('documentation') ? {}
     specific = @docs.specificArticles or []
     @intro = _.find specific, name: 'Intro'
+    if window.serverConfig.picoCTF
+      @intro ?= body: ''
 
   showReady: ->
     return if @shownReady
@@ -170,7 +173,18 @@ module.exports = class LevelLoadingView extends CocoView
 
   unveilIntro: =>
     return if @destroyed or not @intro or @unveiled
-    html = marked utils.filterMarkdownCodeLanguages(utils.i18n(@intro, 'body'))
+    if window.serverConfig.picoCTF and problem = @level.picoCTFProblem
+      html = marked """
+        ### #{problem.name}
+
+        #{@intro.body}
+
+        #{problem.description}
+
+        #{problem.category} - #{problem.score} points
+      """, sanitize: false
+    else
+      html = marked utils.filterMarkdownCodeLanguages(utils.i18n(@intro, 'body'))
     @$el.find('.intro-doc').removeClass('hidden').find('.intro-doc-content').html html
     @resize()
 
@@ -191,9 +205,15 @@ module.exports = class LevelLoadingView extends CocoView
     @$el.find('.level-loading-goals, .tip, .load-progress').hide()
     @$el.find('.course-membership-required').show()
 
+  onLoadError: (resource) ->
+    @$el.find('.level-loading-goals, .tip, .load-progress').hide()
+    @$el.find('.could-not-load').show()
+
   onClickStartSubscription: (e) ->
     @openModalView new SubscribeModal()
-    window.tracker?.trackEvent 'Show subscription modal', category: 'Subscription', label: 'level loading', level: @level?.get('slug') or @options.level?.get('slug')
+    levelSlug = @level?.get('slug') or @options.level?.get('slug')
+    # TODO: Added levelID on 2/9/16. Remove level property and associated AnalyticsLogEvent 'properties.level' index later.
+    window.tracker?.trackEvent 'Show subscription modal', category: 'Subscription', label: 'level loading', level: levelSlug, levelID: levelSlug
 
   onSubscribed: ->
     document.location.reload()

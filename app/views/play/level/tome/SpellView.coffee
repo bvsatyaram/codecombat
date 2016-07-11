@@ -6,10 +6,13 @@ Range = ace.require('ace/range').Range
 UndoManager = ace.require('ace/undomanager').UndoManager
 Problem = require './Problem'
 SpellDebugView = require './SpellDebugView'
+SpellTranslationView = require './SpellTranslationView'
 SpellToolbarView = require './SpellToolbarView'
 LevelComponent = require 'models/LevelComponent'
 UserCodeProblem = require 'models/UserCodeProblem'
 utils = require 'core/utils'
+CodeLog = require 'models/CodeLog'
+Zatanna = require './editor/zatanna'
 
 module.exports = class SpellView extends CocoView
   id: 'spell-view'
@@ -47,12 +50,15 @@ module.exports = class SpellView extends CocoView
     'tome:maximize-toggled': 'onMaximizeToggled'
     'script:state-changed': 'onScriptStateChange'
     'playback:ended-changed': 'onPlaybackEndedChanged'
+    'level:contact-button-pressed': 'onContactButtonPressed'
+    'level:show-victory': 'onShowVictory'
 
   events:
     'mouseout': 'onMouseOut'
 
   constructor: (options) ->
     super options
+    @supermodel = options.supermodel
     @worker = options.worker
     @session = options.session
     @listenTo(@session, 'change:multiplayer', @onMultiplayerChanged)
@@ -63,7 +69,6 @@ module.exports = class SpellView extends CocoView
     @highlightCurrentLine = _.throttle @highlightCurrentLine, 100
     $(window).on 'resize', @onWindowResize
     @observing = @session.get('creator') isnt me.id
-
   afterRender: ->
     super()
     @createACE()
@@ -105,6 +110,14 @@ module.exports = class SpellView extends CocoView
     $(@ace.container).find('.ace_gutter').on 'click mouseenter', '.ace_error, .ace_warning, .ace_info', @onAnnotationClick
     $(@ace.container).find('.ace_gutter').on 'click', @onGutterClick
     @initAutocomplete aceConfig.liveCompletion ? true
+
+    return if @session.get('creator') isnt me.id or @session.fake
+    # Create a Spade to 'dig' into Ace.
+    @spade = new Spade()
+    @spade.track(@ace)
+    # If a user is taking longer than 10 minutes, let's log it.
+    saveSpadeDelay = 10 * 60 * 1000
+    @saveSpadeTimeout = setTimeout @saveSpade, saveSpadeDelay
 
   createACEShortcuts: ->
     @aceCommands = aceCommands = []
@@ -218,7 +231,7 @@ module.exports = class SpellView extends CocoView
         disableSpaces = @options.level.get('disableSpaces') or false
         aceConfig = me.get('aceConfig') ? {}
         disableSpaces = false if aceConfig.keyBindings and aceConfig.keyBindings isnt 'default'  # Not in vim/emacs mode
-        disableSpaces = false if @spell.language in ['clojure', 'lua', 'java', 'coffeescript', 'io']  # Don't disable for more advanced/experimental languages
+        disableSpaces = false if @spell.language in ['lua', 'java', 'coffeescript']  # Don't disable for more advanced/experimental languages
         if not disableSpaces or (_.isNumber(disableSpaces) and disableSpaces < me.level())
           return @ace.execCommand 'insertstring', ' '
         line = @aceDoc.getLine @ace.getCursorPosition().row
@@ -262,70 +275,77 @@ module.exports = class SpellView extends CocoView
           e.editor.execCommand 'gotolineend'
           return true
 
-    if me.level() < 20 or aceConfig.indentGuides
-      # Add visual ident guides
-      language = @spell.language
-      ensureLineStartsBlock = (line) ->
-        return false unless language is "python"
-        match = /^\s*([^#]+)/.exec(line)
-        return false if not match?
-        return /:\s*$/.test(match[1])
+    # Add visual indent guides
+    language = @spell.language
+    ensureLineStartsBlock = (line) ->
+      return false unless language is "python"
+      match = /^\s*([^#]+)/.exec(line)
+      return false if not match?
+      return /:\s*$/.test(match[1])
 
-      @aceSession.addDynamicMarker
-        update: (html, markerLayer, session, config) =>
-          Range = ace.require('ace/range').Range
+    @aceSession.addDynamicMarker
+      update: (html, markerLayer, session, config) =>
+        Range = ace.require('ace/range').Range
 
-          foldWidgets = @aceSession.foldWidgets
-          return if not foldWidgets?
+        foldWidgets = @aceSession.foldWidgets
+        return if not foldWidgets?
 
-          lines = @aceDoc.getAllLines()
-          startOfRow = (r) ->
-            str = lines[r]
-            ar = str.match(/^\s*/)
-            ar.pop().length
+        lines = @aceDoc.getAllLines()
+        startOfRow = (r) ->
+          str = lines[r]
+          ar = str.match(/^\s*/)
+          ar.pop().length
 
-          colors = [{border: '74,144,226', fill: '108,162,226'}, {border: '132,180,235', fill: '230,237,245'}]
+        colors = [{border: '74,144,226', fill: '108,162,226'}, {border: '132,180,235', fill: '230,237,245'}]
 
-          for row in [0..@aceSession.getLength()]
-            foldWidgets[row] = @aceSession.getFoldWidget(row) unless foldWidgets[row]?
-            continue unless foldWidgets? and foldWidgets[row] is "start"
+        for row in [0..@aceSession.getLength()]
+          foldWidgets[row] = @aceSession.getFoldWidget(row) unless foldWidgets[row]?
+          continue unless foldWidgets? and foldWidgets[row] is "start"
+          try
             docRange = @aceSession.getFoldWidgetRange(row)
-            if not docRange?
-              guess = startOfRow(row)
-              docRange = new Range(row,guess,row,guess+4)
+          catch error
+            console.warn "Couldn't find fold widget docRange for row #{row}:", error
+          if not docRange?
+            guess = startOfRow(row)
+            docRange = new Range(row,guess,row,guess+4)
 
-            continue unless ensureLineStartsBlock(lines[row])
+          continue unless ensureLineStartsBlock(lines[row])
 
-            if /^\s+$/.test lines[docRange.end.row+1]
-              docRange.end.row += 1
+          if /^\s+$/.test lines[docRange.end.row+1]
+            docRange.end.row += 1
 
-            rstart = @aceSession.documentToScreenPosition docRange.start.row, docRange.start.column
-            rend = @aceSession.documentToScreenPosition docRange.end.row, docRange.end.column
-            range = new Range rstart.row, rstart.column, rend.row, rend.column
+          xstart = startOfRow(row)
+          if language is 'python'
+            requiredIndent = new RegExp '^' + new Array(Math.floor(xstart / 4 + 1)).join('(    |\t)') + '(    |\t)+(\\S|\\s*$)'
+            for crow in [docRange.start.row+1..docRange.end.row]
+              unless requiredIndent.test lines[crow]
+                docRange.end.row = crow - 1
+                break
 
-            xstart = startOfRow(row)
-            level = Math.floor(xstart / 4)
-            indent = startOfRow(row + 1)
-            color = colors[level % colors.length]
-            bw = 3
-            to = markerLayer.$getTop(range.start.row, config)
-            t = markerLayer.$getTop(range.start.row + 1, config)
-            h = config.lineHeight * (range.end.row - range.start.row)
-            l = markerLayer.$padding + xstart * config.characterWidth
-            # w = (data.i - data.b) * config.characterWidth
-            w = 4 * config.characterWidth
-            fw = config.characterWidth * ( @aceSession.getScreenLastRowColumn(range.start.row) - xstart )
+          rstart = @aceSession.documentToScreenPosition docRange.start.row, docRange.start.column
+          rend = @aceSession.documentToScreenPosition docRange.end.row, docRange.end.column
+          range = new Range rstart.row, rstart.column, rend.row, rend.column
+          level = Math.floor(xstart / 4)
+          color = colors[level % colors.length]
+          bw = 3
+          to = markerLayer.$getTop(range.start.row, config)
+          t = markerLayer.$getTop(range.start.row + 1, config)
+          h = config.lineHeight * (range.end.row - range.start.row)
+          l = markerLayer.$padding + xstart * config.characterWidth
+          # w = (data.i - data.b) * config.characterWidth
+          w = 4 * config.characterWidth
+          fw = config.characterWidth * ( @aceSession.getScreenLastRowColumn(range.start.row) - xstart )
 
-            html.push """
-              <div style=
-                "position: absolute; top: #{to}px; left: #{l}px; width: #{fw+bw}px; height: #{config.lineHeight}px;
-                 border: #{bw}px solid rgba(#{color.border},1); border-left: none;"
-              ></div>
-              <div style=
-                "position: absolute; top: #{t}px; left: #{l}px; width: #{w}px; height: #{h}px; background-color: rgba(#{color.fill},0.5);
-                 border-right: #{bw}px solid rgba(#{color.border},1); border-bottom: #{bw}px solid rgba(#{color.border},1);"
-              ></div>
-            """
+          html.push """
+            <div style=
+              "position: absolute; top: #{to}px; left: #{l}px; width: #{fw+bw}px; height: #{config.lineHeight}px;
+               border: #{bw}px solid rgba(#{color.border},1); border-left: none;"
+            ></div>
+            <div style=
+              "position: absolute; top: #{t}px; left: #{l}px; width: #{w}px; height: #{h}px; background-color: rgba(#{color.fill},0.5);
+               border-right: #{bw}px solid rgba(#{color.border},1); border-bottom: #{bw}px solid rgba(#{color.border},1);"
+            ></div>
+          """
 
   fillACE: ->
     @ace.setValue @spell.source
@@ -464,7 +484,6 @@ module.exports = class SpellView extends CocoView
       completers:
         keywords: false
         snippets: @autocomplete
-        text: @autocomplete
       autoLineEndings:
         javascript: ';'
       popupFontSizePx: popupFontSizePx
@@ -481,94 +500,15 @@ module.exports = class SpellView extends CocoView
     # name: displayed left-justified in popup, and what's being matched
     # tabTrigger: fallback for name field
     return unless @zatanna and @autocomplete
-    snippetEntries = []
-    haveFindNearestEnemy = false
-    haveFindNearest = false
-    for group, props of e.propGroups
-      for prop in props
-        if _.isString prop  # organizePalette
-          owner = group
-        else                # organizePaletteHero
-          owner = prop.owner
-          prop = prop.prop
-        doc = _.find (e.allDocs['__' + prop] ? []), (doc) ->
-          return true if doc.owner is owner
-          return (owner is 'this' or owner is 'more') and (not doc.owner? or doc.owner is 'this')
-        if doc?.snippets?[e.language]
-          name = doc.name
-          content = doc.snippets[e.language].code
-          if /loop/.test(content) and @options.level.get 'moveRightLoopSnippet'
-            # Replace default loop snippet with an embedded moveRight()
-            content = switch e.language
-              when 'python' then 'loop:\n    self.moveRight()\n    ${1:}'
-              when 'javascript' then 'loop {\n    this.moveRight();\n    ${1:}\n}'
-              else content
-          if /loop/.test(content) and @options.level.get('type') in ['course', 'course-ladder']
-            # Temporary hackery to make it look like we meant while True: in our loop snippets until we can update everything
-            content = switch e.language
-              when 'python' then content.replace /loop:/, 'while True:'
-              when 'javascript' then content.replace /loop/, 'while (true)'
-              when 'clojure' then content.replace /dotimes \[n 1000\]/, '(while true'
-              when 'lua' then content.replace /loop/, 'while true then'
-              when 'coffeescript' then content
-              when 'io' then content.replace /loop/, 'while true,'
-              else content
-            name = switch e.language
-              when 'python' then 'while True'
-              when 'coffeescript' then 'loop'
-              else 'while true'
-          entry =
-            content: content
-            meta: $.i18n.t('keyboard_shortcuts.press_enter', defaultValue: 'press enter')
-            name: name
-            tabTrigger: doc.snippets[e.language].tab
-            importance: doc.autoCompletePriority ? 1.0
-          haveFindNearestEnemy ||= name is 'findNearestEnemy'
-          haveFindNearest ||= name is 'findNearest'
-          if name is 'attack'
-            # Postpone this until we know if findNearestEnemy is available
-            attackEntry = entry
-          else
-            snippetEntries.push entry
+    @zatanna.addCodeCombatSnippets @options.level, @, e
 
-          if doc.userShouldCaptureReturn
-            varName = doc.userShouldCaptureReturn.variableName ? 'result'
-            entry.captureReturn = switch e.language
-              when 'io' then varName + ' := '
-              when 'javascript' then 'var ' + varName + ' = '
-              when 'clojure' then '(let [' + varName + ' '
-              else varName + ' = '
-
-    # TODO: Generalize this snippet replacement
-    # TODO: Where should this logic live, and what format should it be in?
-    if attackEntry?
-      unless haveFindNearestEnemy or haveFindNearest or @options.level.get('slug') in ['known-enemy', 'course-known-enemy']
-        # No findNearestEnemy, so update attack snippet to string-based target
-        # (On Known Enemy, we are introducing enemy2 = "Gert", so we want them to do attack(enemy2).)
-        attackEntry.content = attackEntry.content.replace '${1:enemy}', '"${1:Enemy Name}"'
-      snippetEntries.push attackEntry
-
-    if haveFindNearest and not haveFindNearestEnemy
-      @translateFindNearest()
-
-    # window.zatannaInstance = @zatanna  # For debugging. Make sure to not leave active when committing.
-    # window.snippetEntries = snippetEntries
-    lang = utils.aceEditModes[e.language].substr 'ace/mode/'.length
-    @zatanna.addSnippets snippetEntries, lang
-    @editorLang = lang
+    
 
   translateFindNearest: ->
     # If they have advanced glasses but are playing a level which assumes earlier glasses, we'll adjust the sample code to use the more advanced APIs instead.
     oldSource = @getSource()
-    if @spell.language is 'clojure'
-      newSource = oldSource.replace /\(.findNearestEnemy this\)/g, "(.findNearest this (.findEnemies this))"
-      newSource = newSource.replace /\(.findNearestItem this\)/g, "(.findNearest this (.findItems this))"
-    else if @spell.language is 'io'
-      newSource = oldSource.replace /findNearestEnemy/g, "findNearest(findEnemies)"
-      newSource = newSource.replace /findNearestItem/g, "findNearest(findItems)"
-    else
-      newSource = oldSource.replace /(self:|self.|this.|@)findNearestEnemy\(\)/g, "$1findNearest($1findEnemies())"
-      newSource = newSource.replace /(self:|self.|this.|@)findNearestItem\(\)/g, "$1findNearest($1findItems())"
+    newSource = oldSource.replace /(self:|self.|this.|@)findNearestEnemy\(\)/g, "$1findNearest($1findEnemies())"
+    newSource = newSource.replace /(self:|self.|this.|@)findNearestItem\(\)/g, "$1findNearest($1findItems())"
     return if oldSource is newSource
     @spell.originalSource = newSource
     @updateACEText newSource
@@ -614,9 +554,13 @@ module.exports = class SpellView extends CocoView
     @createToolbarView()
 
   createDebugView: ->
-    return if @options.level.get('type', true) in ['hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder']  # We'll turn this on later, maybe, but not yet.
+    return if @options.level.get('type', true) in ['hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder', 'game-dev']  # We'll turn this on later, maybe, but not yet.
     @debugView = new SpellDebugView ace: @ace, thang: @thang, spell:@spell
     @$el.append @debugView.render().$el.hide()
+
+  createTranslationView: ->
+    @translationView = new SpellTranslationView { @ace, @supermodel }
+    @$el.append @translationView.render().$el.hide()
 
   createToolbarView: ->
     @toolbarView = new SpellToolbarView ace: @ace
@@ -624,6 +568,9 @@ module.exports = class SpellView extends CocoView
 
   onMouseOut: (e) ->
     @debugView?.onMouseOut e
+
+  onContactButtonPressed: (e) ->
+    @saveSpade()
 
   getSource: ->
     @ace.getValue()  # could also do @firepad.getText()
@@ -637,6 +584,7 @@ module.exports = class SpellView extends CocoView
     @spellThang = @spell.thangs[@thang.id]
     @createDebugView() unless @debugView
     @debugView?.thang = @thang
+    @createTranslationView() unless @translationView
     @toolbarView?.toggleFlow false
     @updateAether false, false
     # @addZatannaSnippets()
@@ -668,6 +616,8 @@ module.exports = class SpellView extends CocoView
       @aceDoc.insertNewLine row: lineCount, column: 0  #lastLine.length
       @ace.navigateLeft(1) if wasAtEnd
       ++lineCount
+      # Force the popup back
+      @ace?.completer?.showPopup(@ace)
     screenLineCount = @aceSession.getScreenLength()
     if screenLineCount isnt @lastScreenLineCount
       @lastScreenLineCount = screenLineCount
@@ -693,6 +643,33 @@ module.exports = class SpellView extends CocoView
   hideProblemAlert: ->
     return if @destroyed
     Backbone.Mediator.publish 'tome:hide-problem-alert', {}
+
+  saveSpade: =>
+    return if @destroyed
+    spadeEvents = @spade.compile()
+    # Uncomment the below line for a debug panel to display inside the level
+    #@spade.debugPlay(spadeEvents)
+    condensedEvents = @spade.condense(spadeEvents)
+
+    return unless condensedEvents.length
+    compressedEvents = LZString.compressToUTF16(JSON.stringify(condensedEvents))
+
+    codeLog = new CodeLog({
+      sessionID: @options.session.id
+      level:
+        original: @options.level.get 'original'
+        majorVersion: (@options.level.get 'version').major
+      levelSlug: @options.level.get 'slug'
+      userID: @options.session.get 'creator'
+      log: compressedEvents
+    })
+
+    codeLog.save()
+
+  onShowVictory: (e) ->
+    if @saveSpadeTimeout?
+      window.clearTimeout @saveSpadeTimeout
+      @saveSpadeTimeout = null
 
   onManualCast: (e) ->
     cast = @$el.parent().length
@@ -1009,12 +986,8 @@ module.exports = class SpellView extends CocoView
     return unless @ace.isFocused() and e.x? and e.y?
     if @spell.language is 'python'
       @ace.insert "{\"x\": #{e.x}, \"y\": #{e.y}}"
-    else if @spell.language is 'clojure'
-      @ace.insert "{:x #{e.x} :y #{e.y}}"
     else if @spell.language is 'lua'
       @ace.insert "{x=#{e.x}, y=#{e.y}}"
-    else if @spell.language is 'io'
-      return
     else
       @ace.insert "{x: #{e.x}, y: #{e.y}}"
 
@@ -1193,7 +1166,7 @@ module.exports = class SpellView extends CocoView
   onSpellBeautify: (e) ->
     return unless @spellThang and (@ace.isFocused() or e.spell is @spell)
     ugly = @getSource()
-    pretty = @spellThang.aether.beautify ugly
+    pretty = @spellThang.aether.beautify(ugly.replace /\bloop\b/g, 'while (__COCO_LOOP_CONSTRUCT__)').replace /while \(__COCO_LOOP_CONSTRUCT__\)/g, 'loop'
     @ace.setValue pretty
 
   onMaximizeToggled: (e) ->
@@ -1285,15 +1258,17 @@ module.exports = class SpellView extends CocoView
     @aceSession?.selection.off 'changeCursor', @onCursorActivity
     @destroyAceEditor(@ace)
     @debugView?.destroy()
+    @translationView?.destroy()
     @toolbarView?.destroy()
     @zatanna.addSnippets [], @editorLang if @editorLang?
     $(window).off 'resize', @onWindowResize
+    window.clearTimeout @saveSpadeTimeout
+    @saveSpadeTimeout = null
     super()
 
 commentStarts =
   javascript: '//'
   python: '#'
   coffeescript: '#'
-  clojure: ';'
   lua: '--'
-  io: '//'
+  java: '//'

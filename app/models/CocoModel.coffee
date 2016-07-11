@@ -21,6 +21,9 @@ class CocoModel extends Backbone.Model
     @on 'add', @onLoaded, @
     @saveBackup = _.debounce(@saveBackup, 500)
     @usesVersions = @schema()?.properties?.version?
+    if window.application?.testing
+      @fakeRequests = []
+      @on 'request', -> @fakeRequests.push jasmine.Ajax.requests.mostRecent()
 
   created: -> new Date(parseInt(@id.substring(0, 8), 16) * 1000)
 
@@ -121,10 +124,11 @@ class CocoModel extends Backbone.Model
   validate: ->
     errors = @getValidationErrors()
     if errors?.length
-      console.debug "Validation failed for #{@constructor.className}: '#{@get('name') or @}'."
-      for error in errors
-        console.debug "\t", error.dataPath, ':', error.message
-      console.trace?()
+      unless application.testing
+        console.debug "Validation failed for #{@constructor.className}: '#{@get('name') or @}'."
+        for error in errors
+          console.debug "\t", error.dataPath, ':', error.message
+        console.trace?()
       return errors
 
   save: (attrs, options) ->
@@ -185,7 +189,6 @@ class CocoModel extends Backbone.Model
         keys.push key
 
     return unless keys.length
-    console.debug 'Patching', @get('name') or @, keys
     @save(attrs, options)
 
   fetch: (options) ->
@@ -365,6 +368,7 @@ class CocoModel extends Backbone.Model
     return if _.isString @url then @url else @url()
 
   @pollAchievements: ->
+    return if application.testing
 
     CocoCollection = require 'collections/CocoCollection'
     EarnedAchievement = require 'models/EarnedAchievement'
@@ -427,5 +431,27 @@ class CocoModel extends Backbone.Model
     overallCoverage = _.intersection(langCodeArrays...)
     @set('i18nCoverage', overallCoverage)
 
+  saveNewMinorVersion: (attrs, options={}) ->
+    options.url = @url() + '/new-version'
+    options.type = 'POST'
+    return @save(attrs, options)
+
+  saveNewMajorVersion: (attrs, options={}) ->
+    attrs = attrs or _.omit(@attributes, 'version')
+    options.url = @url() + '/new-version'
+    options.type = 'POST'
+    options.patch = true # do not let version get sent along
+    return @save(attrs, options)
+
+  fetchPatchesWithStatus: (status='pending', options={}) ->
+    Patches = require '../collections/Patches'
+    patches = new Patches()
+    options.data ?= {}
+    options.data.status = status
+    options.url = @urlRoot + '/' + (@get('original') or @id) + '/patches'
+    patches.fetch(options)
+    return patches
+    
+  stringify: -> return JSON.stringify(@toJSON())
 
 module.exports = CocoModel

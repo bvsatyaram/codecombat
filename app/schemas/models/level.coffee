@@ -4,44 +4,49 @@ ThangComponentSchema = require './thang_component'
 defaultTasks = [
   'Name the level.'
   'Create a Referee stub, if needed.'
+  'Do basic set decoration.'
+  'Publish.'
+
   'Build the level.'
   'Set up goals.'
+  'Write the sample code.'
+  'Make sure the level ends promptly on success and failure.'
+
   'Choose the Existence System lifespan and frame rate.'
   'Choose the UI System paths and coordinate hover if needed.'
   'Choose the AI System pathfinding and Vision System line of sight.'
-  'Write the sample code.'
 
-  'Do basic set decoration.'
   'Adjust script camera bounds.'
   'Choose music file in Introduction script.'
   'Choose autoplay in Introduction script.'
 
-  'Add to a campaign.'
-  'Publish.'
-  'Choose level options like required/restricted gear.'
-  'Create achievements, including unlocking next level.'
+  'Add Lua/CoffeeScript/Java.'
+
+  'Write the description.'
+  'Write the guide.'
+
+  'Write a loading tip, if needed.'
+  'Add programming concepts covered.'
+  'Mark whether it requires a subscription.'
   'Choose leaderboard score types.'
 
+  'Do thorough set decoration.'
   'Playtest with a slow/tough hero.'
   'Playtest with a fast/weak hero.'
   'Playtest with a couple random seeds.'
-  'Make sure the level ends promptly on success and failure.'
   'Remove/simplify unnecessary doodad collision.'
+
+  'Add to a campaign.'
+  'Choose level options like required/restricted gear.'
+  'Create achievements, including unlocking next level.'
+
+  'Click the Populate i18n button.'
+  'Add i18n field for the sample code comments.'
   'Release to adventurers via MailChimp.'
 
-  'Write the description.'
-  'Add i18n field for the sample code comments.'
-  'Add Clojure/Lua/CoffeeScript.'
-  'Write the guide.'
-  'Write a loading tip, if needed.'
-  'Click the Populate i18n button.'
-  'Add programming concepts covered.'
-
-  'Mark whether it requires a subscription.'
   'Release to everyone via MailChimp.'
 
   'Check completion/engagement/problem analytics.'
-  'Do thorough set decoration.'
   'Add a walkthrough video.'
 ]
 
@@ -52,7 +57,7 @@ SpecificArticleSchema.properties.i18n = {type: 'object', format: 'i18n', props: 
 SpecificArticleSchema.displayProperty = 'name'
 
 side = {title: 'Side', description: 'A side.', type: 'string', 'enum': ['left', 'right', 'top', 'bottom']}
-thang = {title: 'Thang', description: 'The name of a Thang.', type: 'string', maxLength: 30, format: 'thang'}
+thang = {title: 'Thang', description: 'The name of a Thang.', type: 'string', maxLength: 60, format: 'thang'}
 
 eventPrereqValueTypes = ['boolean', 'integer', 'number', 'null', 'string'] # not 'object' or 'array'
 EventPrereqSchema = c.object {title: 'Event Prerequisite', format: 'event-prereq', description: 'Script requires that the value of some property on the event triggering it to meet some prerequisite.', required: ['eventProps']},
@@ -254,6 +259,7 @@ LevelSchema = c.object {
   'default':
     name: 'Ineffable Wizardry'
     description: 'This level is indescribably flarmy.'
+    tasks: (name: t, complete: false for t in defaultTasks)
     documentation: {}
     scripts: []
     thangs: []
@@ -261,7 +267,7 @@ LevelSchema = c.object {
     victory: {}
     type: 'hero'
     goals: [
-      {id: 'ogres-die', name: 'Ogres must die.', killThangs: ['ogres'], worldEndsAfter: 3}
+      {id: 'ogres-die', name: 'Defeat the ogres.', killThangs: ['ogres'], worldEndsAfter: 3}
       {id: 'humans-survive', name: 'Your hero must survive.', saveThangs: ['Hero Placeholder'], howMany: 1, worldEndsAfter: 3, hiddenGoal: true}
     ]
     concepts: ['basic_syntax']
@@ -270,9 +276,23 @@ c.extendNamedProperties LevelSchema  # let's have the name be the first property
 _.extend LevelSchema.properties,
   description: {title: 'Description', description: 'A short explanation of what this level is about.', type: 'string', maxLength: 65536, format: 'markdown'}
   loadingTip: { type: 'string', title: 'Loading Tip', description: 'What to show for this level while it\'s loading.' }
-  documentation: c.object {title: 'Documentation', description: 'Documentation articles relating to this level.', required: ['specificArticles', 'generalArticles'], 'default': {specificArticles: [], generalArticles: []}},
+  documentation: c.object {title: 'Documentation', description: 'Documentation articles relating to this level.', 'default': {specificArticles: [], generalArticles: []}},
     specificArticles: c.array {title: 'Specific Articles', description: 'Specific documentation articles that live only in this level.', uniqueItems: true }, SpecificArticleSchema
     generalArticles: c.array {title: 'General Articles', description: 'General documentation articles that can be linked from multiple levels.', uniqueItems: true}, GeneralArticleSchema
+    hints: c.array {title: 'Hints', description: 'Tips and tricks to help unstick a player for the level.', uniqueItems: true }, {
+      type: 'object'
+      properties: {
+        body: {type: 'string', title: 'Content', description: 'The body content of the article, in Markdown.', format: 'markdown'}
+        i18n: {type: 'object', format: 'i18n', props: ['body'], description: 'Help translate this hint'}
+      }
+    }
+    hintsB: c.array {title: 'HintsB', description: '2nd style of hints for a/b testing significant variations', uniqueItems: true }, {
+      type: 'object'
+      properties: {
+        body: {type: 'string', title: 'Content', description: 'The body content of the article, in Markdown.', format: 'markdown'}
+        i18n: {type: 'object', format: 'i18n', props: ['body'], description: 'Help translate this hint'}
+      }
+    }
   background: c.objectId({format: 'hidden'})
   nextLevel: {
     type: 'object',
@@ -293,7 +313,7 @@ _.extend LevelSchema.properties,
   icon: {type: 'string', format: 'image-file', title: 'Icon'}
   banner: {type: 'string', format: 'image-file', title: 'Banner'}
   goals: c.array {title: 'Goals', description: 'An array of goals which are visible to the player and can trigger scripts.'}, GoalSchema
-  type: c.shortString(title: 'Type', description: 'What kind of level this is.', 'enum': ['campaign', 'ladder', 'ladder-tutorial', 'hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder'])
+  type: c.shortString(title: 'Type', description: 'What kind of level this is.', 'enum': ['campaign', 'ladder', 'ladder-tutorial', 'hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder', 'game-dev'])
   terrain: c.terrainString
   showsGuide: c.shortString(title: 'Shows Guide', description: 'If the guide is shown at the beginning of the level.', 'enum': ['first-time', 'always'])
   requiresSubscription: {title: 'Requires Subscription', description: 'Whether this level is available to subscribers only.', type: 'boolean'}
@@ -304,10 +324,11 @@ _.extend LevelSchema.properties,
     url: c.url {title: 'URL', description: 'Link to the video on Vimeo.'}
   replayable: {type: 'boolean', title: 'Replayable', description: 'Whether this (hero) level infinitely scales up its difficulty and can be beaten over and over for greater rewards.'}
   buildTime: {type: 'number', description: 'How long it has taken to build this level.'}
+  practice: { type: 'boolean' }
+  practiceThresholdMinutes: {type: 'number', description: 'Players with larger playtimes may be directed to a practice level.'}
 
   # Admin flags
   adventurer: { type: 'boolean' }
-  practice: { type: 'boolean' }
   adminOnly: { type: 'boolean' }
   disableSpaces: { type: ['boolean','integer'] }
   hidesSubmitUntilRun: { type: 'boolean' }
@@ -348,6 +369,7 @@ _.extend LevelSchema.properties,
   scoreTypes: c.array {title: 'Score Types', description: 'What metric to show leaderboards for.', uniqueItems: true},
      c.shortString(title: 'Score Type', 'enum': ['time', 'damage-taken', 'damage-dealt', 'gold-collected', 'difficulty'])  # TODO: good version of LoC; total gear value.
   concepts: c.array {title: 'Programming Concepts', description: 'Which programming concepts this level covers.', uniqueItems: true}, c.concept
+  picoCTFProblem: { type: 'string', description: 'Associated picoCTF problem ID, if this is a picoCTF level' }
 
 
 c.extendBasicProperties LevelSchema, 'level'

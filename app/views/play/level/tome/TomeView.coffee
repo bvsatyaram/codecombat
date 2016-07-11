@@ -60,7 +60,7 @@ module.exports = class TomeView extends CocoView
     @worker = @createWorker()
     programmableThangs = _.filter @options.thangs, (t) -> t.isProgrammable and t.programmableMethods
     @createSpells programmableThangs, programmableThangs[0]?.world  # Do before spellList, thangList, and castButton
-    unless @options.level.get('type', true) in ['hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder']
+    unless @options.level.get('type', true) in ['hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder', 'game-dev']
       @spellList = @insertSubView new SpellListView spells: @spells, supermodel: @supermodel, level: @options.level
     @castButton = @insertSubView new CastButtonView spells: @spells, level: @options.level, session: @options.session, god: @options.god
     @teamSpellMap = @generateTeamSpellMap(@spells)
@@ -122,6 +122,7 @@ module.exports = class TomeView extends CocoView
         unless method.cloneOf
           skipProtectAPI = @getQueryVariable 'skip_protect_api', (@options.levelID in ['gridmancer', 'minimax-tic-tac-toe'])
           spell = @spells[spellKey] = new Spell
+            hintsState: @options.hintsState
             programmableMethod: method
             spellKey: spellKey
             pathComponents: pathPrefixComponents.concat(pathComponents)
@@ -169,7 +170,7 @@ module.exports = class TomeView extends CocoView
     difficulty = sessionState.difficulty ? 0
     if @options.observing
       difficulty = Math.max 0, difficulty - 1  # Show the difficulty they won, not the next one.
-    Backbone.Mediator.publish 'tome:cast-spells', spells: @spells, preload: preload, realTime: realTime, submissionCount: sessionState.submissionCount ? 0, flagHistory: sessionState.flagHistory ? [], difficulty: difficulty, god: @options.god
+    Backbone.Mediator.publish 'tome:cast-spells', spells: @spells, preload: preload, realTime: realTime, submissionCount: sessionState.submissionCount ? 0, flagHistory: sessionState.flagHistory ? [], difficulty: difficulty, god: @options.god, fixedSeed: @options.fixedSeed
 
   onToggleSpellList: (e) ->
     @spellList?.rerenderEntries()
@@ -193,7 +194,7 @@ module.exports = class TomeView extends CocoView
     @castButton?.$el.hide()
 
   onSpriteSelected: (e) ->
-    return if @spellView and @options.level.get('type', true) in ['hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder']  # Never deselect the hero in the Tome.
+    return if @spellView and @options.level.get('type', true) in ['hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder', 'game-dev']  # Never deselect the hero in the Tome.
     thang = e.thang
     spellName = e.spellName
     @spellList?.$el.hide()
@@ -201,7 +202,7 @@ module.exports = class TomeView extends CocoView
     spell = @spellFor thang, spellName
     unless spell?.canRead()
       @clearSpellView()
-      @updateSpellPalette thang, spell
+      @updateSpellPalette thang, spell if spell
       return
     unless spell.view is @spellView
       @clearSpellView()
@@ -218,7 +219,8 @@ module.exports = class TomeView extends CocoView
 
   updateSpellPalette: (thang, spell) ->
     return unless thang and @spellPaletteView?.thang isnt thang and thang.programmableProperties or thang.apiProperties
-    @spellPaletteView = @insertSubView new SpellPaletteView thang: thang, supermodel: @supermodel, programmable: spell?.canRead(), language: spell?.language ? @options.session.get('codeLanguage'), session: @options.session, level: @options.level, courseID: @options.courseID, courseInstanceID: @options.courseInstanceID
+    useHero = /hero/.test(spell.getSource()) or not /(self[\.\:]|this\.|\@)/.test(spell.getSource())
+    @spellPaletteView = @insertSubView new SpellPaletteView { thang, @supermodel, programmable: spell?.canRead(), language: spell?.language ? @options.session.get('codeLanguage'), session: @options.session, level: @options.level, courseID: @options.courseID, courseInstanceID: @options.courseInstanceID, useHero }
     @spellPaletteView.toggleControls {}, spell.view.controlsEnabled if spell?.view   # TODO: know when palette should have been disabled but didn't exist
 
   spellFor: (thang, spellName) ->

@@ -89,12 +89,6 @@ $gameControlMargin: 30px
         a
           cursor: default
 
-      &.next
-        width: 2 * $levelDotWidth
-        height: 2 * $levelDotHeight
-        margin-left: -0.5 * 2 * $levelDotWidth
-        margin-bottom: -2 * $levelDotHeight / 3 + 2 * $levelDotZ
-
       &.started, &.next
         border: 3px solid lightgreen
         @include box-shadow(0px 0px 35px skyblue)
@@ -170,12 +164,6 @@ $gameControlMargin: 30px
       @include box-shadow(0px 0px 10px black)
       @include opacity(0.75)
 
-      &.next
-        width: 2 * $levelDotShadowWidth
-        height: 2 * $levelDotShadowHeight
-        margin-left: -0.5 * 2 * $levelDotShadowWidth
-        margin-bottom: -2 * $levelDotShadowHeight / 3
-
     .level:hover
       // TODO: This rotate stops Firefox from flickering, but also disables the scaleY(0.75)
       // TODO: The dot looks like it's jumping.
@@ -185,9 +173,6 @@ $gameControlMargin: 30px
       margin-bottom: -$levelDotHeight / 3 + $levelDotHoverZ
       @include box-shadow(0px 0px 35px skyblue)
 
-      &.next
-        margin-bottom: -2 * $levelDotHeight / 3 + 2 * $levelDotHoverZ
-
     .level
       a
         display: block
@@ -196,14 +181,9 @@ $gameControlMargin: 30px
         margin-top: -0.5 * $levelClickRadius
         border-radius: $levelClickRadius
 
-      &.next a
-        padding: 2 * $levelClickRadius
-        margin-left: 2 * -0.5 * $levelClickRadius
-        margin-top: 2 * -0.5 * $levelClickRadius
-        border-radius: 2 * $levelClickRadius
-
     .tooltip
       z-index: 2
+      pointer-events: none
 
       .tooltip-arrow
         display: none
@@ -280,7 +260,7 @@ $gameControlMargin: 30px
             opacity: 1
             padding: 3px 9px
 
-        &.complete
+        &.shows-leaderboard
           .start-level, .view-solutions
             min-width: calc(50% - 5px)
             display: inline-block
@@ -611,12 +591,31 @@ $gameControlMargin: 30px
             margin: 15px 0
             min-width: 100px
 
-  #small-nav-logo
+  .small-nav-logo, .picoctf-powered-by
     position: absolute
     top: 1%
     left: 1%
     height: 60px
     z-index: 1
+
+  .picoctf-logo .small-nav-logo
+    height: 90px
+
+  .picoctf-powered-by
+    color: rgb(227, 173, 53)
+    top: calc(1% + 90px)
+    margin: 10px 10px 10px 15px
+
+    img
+      height: 30px
+
+  .ad-container
+    width: 100%
+    height: 90px
+    text-align: center
+
+  .gameplay-container
+    position: absolute
 
 body.ipad #campaign-view
   // iPad only supports up to Kithgard Gates for now.
@@ -625,3 +624,4 @@ body.ipad #campaign-view
 
 body[lang='ru'] .portals h2
   font-size: 26px
+

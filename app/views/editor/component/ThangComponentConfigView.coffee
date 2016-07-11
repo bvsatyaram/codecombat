@@ -46,7 +46,7 @@ module.exports = class ThangComponentConfigView extends CocoView
     schema.default ?= {}
     _.merge schema.default, @additionalDefaults if @additionalDefaults
 
-    if @level?.get('type', true) in ['hero', 'hero-ladder', 'hero-coop']
+    if @level?.get('type', true) in ['hero', 'hero-ladder', 'hero-coop', 'course', 'course-ladder', 'game-dev']
       schema.required = []
     treemaOptions =
       supermodel: @supermodel
@@ -116,7 +116,7 @@ class SolutionsNode extends TreemaArrayNode
       solutions.push({
         source: source
         language: language
-        passes: true
+        succeeds: true
       })
 
     @set('/', solutions)

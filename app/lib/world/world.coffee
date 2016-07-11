@@ -162,11 +162,25 @@ module.exports = class World
 
   shouldContinueLoading: (t1, loadProgressCallback, skipDeferredLoading, continueLaterFn) ->
     t2 = now()
+    chunkSize = @frames.length - @framesSerializedSoFar
+    simedTime = @frames.length / @frameRate
+
+    chunkTime = switch
+      when simedTime > 15 then 7
+      when simedTime > 10 then 5
+      when simedTime > 5 then 3
+      when simedTime > 2 then 1
+      else 0.5
+
+    bailoutTime = Math.max(2000*chunkTime, 10000)
+
+    dt = t2 - t1
+
     if @realTime
       shouldUpdateProgress = @shouldUpdateRealTimePlayback t2
       shouldDelayRealTimeSimulation = not shouldUpdateProgress and @shouldDelayRealTimeSimulation t2
     else
-      shouldUpdateProgress = t2 - t1 > PROGRESS_UPDATE_INTERVAL
+      shouldUpdateProgress = (dt > PROGRESS_UPDATE_INTERVAL and (chunkSize / @frameRate >= chunkTime) or dt > bailoutTime)
       shouldDelayRealTimeSimulation = false
     return true unless shouldUpdateProgress or shouldDelayRealTimeSimulation
     # Stop loading frames for now; continue in a moment.
@@ -202,6 +216,9 @@ module.exports = class World
   addFlagEvent: (flagEvent) ->
     @flagHistory.push flagEvent
 
+  addRealTimeInputEvent: (realTimeInputEvent) ->
+    @realTimeInputEvents.push realTimeInputEvent
+
   loadFromLevel: (level, willSimulate=true) ->
     @levelID = level.slug
     @levelComponents = level.levelComponents
@@ -210,6 +227,9 @@ module.exports = class World
     @loadSystemsFromLevel level
     @loadThangsFromLevel level, willSimulate
     @showsCountdown = @levelID in COUNTDOWN_LEVELS or _.any(@thangs, (t) -> (t.programmableProperties and 'findFlags' in t.programmableProperties) or t.inventory?.flag)
+    @picoCTFProblem = level.picoCTFProblem if level.picoCTFProblem
+    if @picoCTFProblem?.instances and not @picoCTFProblem.flag_sha1
+      @picoCTFProblem = _.merge @picoCTFProblem, @picoCTFProblem.instances[0]
     system.start @thangs for system in @systems
 
   loadSystemsFromLevel: (level) ->
@@ -361,8 +381,8 @@ module.exports = class World
     endFrame = @frames.length
     #console.log "... world serializing frames from", startFrame, "to", endFrame, "of", @totalFrames
     [transferableObjects, nontransferableObjects] = [0, 0]
-    delete flag.processed for flag in @flagHistory
-    o = {totalFrames: @totalFrames, maxTotalFrames: @maxTotalFrames, frameRate: @frameRate, dt: @dt, victory: @victory, userCodeMap: {}, trackedProperties: {}, flagHistory: @flagHistory, difficulty: @difficulty, scores: @getScores(), randomSeed: @randomSeed}
+    serializedFlagHistory = (_.omit(_.clone(flag), 'processed') for flag in @flagHistory)
+    o = {totalFrames: @totalFrames, maxTotalFrames: @maxTotalFrames, frameRate: @frameRate, dt: @dt, victory: @victory, userCodeMap: {}, trackedProperties: {}, flagHistory: serializedFlagHistory, difficulty: @difficulty, scores: @getScores(), randomSeed: @randomSeed, picoCTFFlag: @picoCTFFlag}
     o.trackedProperties[prop] = @[prop] for prop in @trackedProperties or []
 
     for thangID, methods of @userCodeMap
@@ -469,7 +489,7 @@ module.exports = class World
             w.userCodeMap[thangID][methodName][aetherStateKey] = serializedAether[aetherStateKey]
     else
       w = new World o.userCodeMap, classMap
-    [w.totalFrames, w.maxTotalFrames, w.frameRate, w.dt, w.scriptNotes, w.victory, w.flagHistory, w.difficulty, w.scores, w.randomSeed] = [o.totalFrames, o.maxTotalFrames, o.frameRate, o.dt, o.scriptNotes ? [], o.victory, o.flagHistory, o.difficulty, o.scores, o.randomSeed]
+    [w.totalFrames, w.maxTotalFrames, w.frameRate, w.dt, w.scriptNotes, w.victory, w.flagHistory, w.difficulty, w.scores, w.randomSeed, w.picoCTFFlag] = [o.totalFrames, o.maxTotalFrames, o.frameRate, o.dt, o.scriptNotes ? [], o.victory, o.flagHistory, o.difficulty, o.scores, o.randomSeed, o.picoCTFFlag]
     w[prop] = val for prop, val of o.trackedProperties
 
     perf.t1 = now()
